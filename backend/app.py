@@ -16,8 +16,30 @@ app = Flask(__name__)
 app.config.from_object(Config)
 #Roles válidos para los usuarios
 ROLES_VALIDOS = {"jefe_laboratorio", "personal_laboratorio"}
-#Querys realizadas para la base de datos
+
+#Querys CRUD realizadas para la base de datos 
 USUARIO_SELECT = "SELECT id, nombre, email, rol FROM users"
+EQUIPO_SELECT = """
+SELECT e.id, e.nombre, e.tipo, e.ubicacion, e.temp_objetivo, e.responsable_id,
+u.nombre AS responsable_nombre, e.frecuencia_mantenimiento, e.ultima_revision
+FROM equipment e LEFT JOIN users u ON u.id = e.responsable_id
+"""
+PLANTILLA_SELECT = """
+SELECT t.id, t.equipment_type, t.nombre, COUNT(i.id) AS total_items
+FROM checklist_templates t LEFT JOIN checklist_template_items i ON i.template_id = t.id
+GROUP BY t.id, t.equipment_type, t.nombre
+"""
+REGISTRO_SELECT = """
+SELECT ce.id, ce.equipment_id, e.nombre AS equipment_nombre, ce.user_id,
+u.nombre AS user_nombre, ce.fecha, ce.comentario FROM checklist_entries ce JOIN equipment e ON e.id = ce.equipment_id
+JOIN users u ON u.id = ce.user_id
+"""
+INCIDENCIA_SELECT = """
+SELECT i.id, i.equipment_id, e.nombre AS equipment_nombre, i.user_id, u.nombre AS user_nombre,
+i.titulo, i.descripcion, i.prioridad, i.estado, i.creado_a, i.cerrado_a
+FROM issues i JOIN equipment e ON e.id = i.equipment_id JOIN users u ON u.id = i.user_id
+"""
+
 
 #Devuelve una conexión MySQL o una respuesta JSON de error
 def _get_connection_or_error():
@@ -129,7 +151,128 @@ def obtener_usuario(user_id: int):
     finally:
         cur.close()
         conn.close()
+        
 
+#Actualiza usuario por id de forma parcial (PATCH) o completa (PUT)
+@app.route("/api/usuarios/<int:user_id>", methods=["PUT"])
+def actualizar_usuario(user_id: int):
+    """Actualiza usuario de forma parcial"""
+    data = request.get_json(silent=True) or {}
+    conn, err = _get_connection_or_error()
+    if err:
+        return err
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT id, nombre, email, password, rol FROM users WHERE id = %s", (user_id,))
+        actual = cur.fetchone()
+        if actual is None:
+            return jsonify({"ok": False, "message": "Usuario no encontrado"}), 404
+
+        nombre = _text(data.get("nombre", actual["nombre"]))
+        email = _text(data.get("email", actual["email"]))
+        password = _text(data.get("password", actual["password"]))
+        rol = _text(data.get("rol", actual["rol"]))
+        if not nombre or not email or not password:
+            return jsonify({"ok": False, "message": "Faltan campos obligatorios: nombre, email, password"}), 400
+        if rol not in ROLES_VALIDOS:
+            return jsonify({"ok": False, "message": "Rol inválido"}), 400
+
+        cur.execute("UPDATE users SET nombre = %s, email = %s, password = %s, rol = %s WHERE id = %s", (nombre, email, password, rol, user_id))
+        conn.commit()
+        return jsonify({"ok": True, "data": _user_by_id(cur, user_id)}), 200
+    except Error as error:
+        if getattr(error, "errno", None) == 1062:
+            return jsonify({"ok": False, "message": "El email ya existe"}), 409
+        return jsonify({"ok": False, "message": f"Error al actualizar usuario: {error}"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+#Elimina usuario por id
+@app.route("/api/usuarios/<int:user_id>", methods=["DELETE"])
+def eliminar_usuario(user_id: int):
+    conn, err = _get_connection_or_error()
+    if err:
+        return err
+    cur = conn.cursor(dictionary=True)
+    try:
+        if _user_by_id(cur, user_id) is None:
+            return jsonify({"ok": False, "message": "Usuario no encontrado"}), 404
+        cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        conn.commit()
+        return "", 204
+    except Error as error:
+        if getattr(error, "errno", None) == 1451:
+            return jsonify({"ok": False, "message": "No se puede eliminar: tiene registros asociados"}), 409
+        return jsonify({"ok": False, "message": f"Error al eliminar usuario: {error}"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+#Lista equipos del laboratorio con su responsable y frecuencia de mantenimiento 
+@app.route("/api/equipos", methods=["GET"])
+def listar_equipos():
+    """Lista equipos del laboratorio"""
+    conn, err = _get_connection_or_error()
+    if err:
+        return err
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(f"{EQUIPO_SELECT} ORDER BY e.id DESC")
+        return jsonify({"ok": True, "data": cur.fetchall()}), 200
+    except Error as error:
+        return jsonify({"ok": False, "message": f"Error al listar equipos: {error}"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+#Lista plantillas de checklist para cada tipo de equipo
+@app.route("/api/checklist/plantillas", methods=["GET"])
+def listar_plantillas():
+    conn, err = _get_connection_or_error()
+    if err:
+        return err
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(f"{PLANTILLA_SELECT} ORDER BY t.id DESC")
+        return jsonify({"ok": True, "data": cur.fetchall()}), 200
+    except Error as error:
+        return jsonify({"ok": False, "message": f"Error al listar plantillas: {error}"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+#Lista registros de checklist realizados por el personal del laboratorio
+@app.route("/api/checklist/registros", methods=["GET"])
+def listar_registros():
+    conn, err = _get_connection_or_error()
+    if err:
+        return err
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(f"{REGISTRO_SELECT} ORDER BY ce.fecha DESC, ce.id DESC")
+        return jsonify({"ok": True, "data": cur.fetchall()}), 200
+    except Error as error:
+        return jsonify({"ok": False, "message": f"Error al listar registros checklist: {error}"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+#Lista incidencias reportadas en el laboratorio
+@app.route("/api/incidencias", methods=["GET"])
+def listar_incidencias():
+    conn, err = _get_connection_or_error()
+    if err:
+        return err
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(f"{INCIDENCIA_SELECT} ORDER BY i.creado_a DESC, i.id DESC")
+        return jsonify({"ok": True, "data": cur.fetchall()}), 200
+    except Error as error:
+        return jsonify({"ok": False, "message": f"Error al listar incidencias: {error}"}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

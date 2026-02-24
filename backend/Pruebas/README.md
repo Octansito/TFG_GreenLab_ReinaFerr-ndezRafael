@@ -12,3 +12,12 @@ Prueba de conexión
 
     -Prueba (POST): Requerimiento previo es configurar los datos que se pretenden insertar dentro del archivo payload.json para las pruebas --> curl.exe -X POST "http://localhost:5000/api/usuarios" -H "Content-Type: application/json" --data-binary "@payload.json":
     ![alt text](image-4.png)
+    ![alt text](image-5.png)
+
+    -Prueba (PUT):
+    ![alt text](image-6.png)
+    ![alt text](image-7.png)
+
+    -Prueba (DELETE);
+    ![alt text](image-8.png)
+    ![alt text](image-9.png)
