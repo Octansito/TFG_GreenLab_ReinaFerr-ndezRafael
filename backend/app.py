@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from flask import Flask, jsonify, render_template, request
 from mysql.connector import Error
+from werkzeug.security import generate_password_hash
 
 #Este bloque permite ejecutar el proyecto tanto como paquete como script suelto
 try:
@@ -47,11 +48,19 @@ def _get_connection_or_error():
     try:
         return get_db_connection(), None
     except Error as error:
-        return None, (jsonify({"ok": False, "message": f"Error de conexión a la base de datos: {error}"}), 500)
+        app.logger.exception("Error de conexión a MySQL: %s", error)
+        return None, (jsonify({"ok": False, "message": "Error de conexión a la base de datos"}), 500)
 
 #Limpia texto y devuelve string vacío cuando no hay valor
 def _text(value):
     return (str(value).strip() if value is not None else "")
+
+#Valida que el cuerpo sea JSON y de tipo objeto
+def _json_body_or_400():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return None, (jsonify({"ok": False, "message": "El body debe ser JSON válido"}), 400)
+    return data, None
 
 #Devuelve un usuario por id
 def _user_by_id(cursor, user_id: int):
@@ -72,6 +81,11 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_server_error(error):
     return jsonify({"ok": False, "message": "Error interno del servidor"}), 500
+
+
+@app.errorhandler(405)
+def method_not_allowed(error):
+    return jsonify({"ok": False, "message": "Método no permitido"}), 405
 
 
 #Muestra la página principal con el estado actual de la base de datos
@@ -107,7 +121,9 @@ def listar_usuarios():
 #Crea usuario en la tabla users
 @app.route("/api/usuarios", methods=["POST"])
 def crear_usuario():
-    data = request.get_json(silent=True) or {}
+    data, err = _json_body_or_400()
+    if err:
+        return err
     nombre = _text(data.get("nombre"))
     email = _text(data.get("email"))
     password = _text(data.get("password"))
@@ -116,20 +132,22 @@ def crear_usuario():
         return jsonify({"ok": False, "message": "Faltan campos obligatorios: nombre, email, password"}), 400
     if rol not in ROLES_VALIDOS:
         return jsonify({"ok": False, "message": "Rol inválido"}), 400
+    password_hash = generate_password_hash(password)
 
     conn, err = _get_connection_or_error()
     if err:
         return err
     cur = conn.cursor(dictionary=True)
     try:
-        cur.execute("INSERT INTO users (nombre, email, password, rol) VALUES (%s, %s, %s, %s)", (nombre, email, password, rol))
+        cur.execute("INSERT INTO users (nombre, email, password_hash, rol) VALUES (%s, %s, %s, %s)", (nombre, email, password_hash, rol))
         conn.commit()
         user = _user_by_id(cur, cur.lastrowid)
         return jsonify({"ok": True, "data": user}), 201
     except Error as error:
         if getattr(error, "errno", None) == 1062:
             return jsonify({"ok": False, "message": "El email ya existe"}), 409
-        return jsonify({"ok": False, "message": f"Error al crear usuario: {error}"}), 500
+        app.logger.exception("Error SQL al crear usuario: %s", error)
+        return jsonify({"ok": False, "message": "Error interno al crear usuario"}), 500
     finally:
         cur.close()
         conn.close()
@@ -153,37 +171,44 @@ def obtener_usuario(user_id: int):
         conn.close()
         
 
-#Actualiza usuario por id de forma parcial (PATCH) o completa (PUT)
-@app.route("/api/usuarios/<int:user_id>", methods=["PUT"])
+#Actualiza usuario por id de forma parcial o completa
+@app.route("/api/usuarios/<int:user_id>", methods=["PUT", "PATCH"])
 def actualizar_usuario(user_id: int):
-    """Actualiza usuario de forma parcial"""
-    data = request.get_json(silent=True) or {}
+    data, err_json = _json_body_or_400()
+    if err_json:
+        return err_json
     conn, err = _get_connection_or_error()
     if err:
         return err
     cur = conn.cursor(dictionary=True)
     try:
-        cur.execute("SELECT id, nombre, email, password, rol FROM users WHERE id = %s", (user_id,))
+        cur.execute("SELECT id, nombre, email, password_hash, rol FROM users WHERE id = %s", (user_id,))
         actual = cur.fetchone()
         if actual is None:
             return jsonify({"ok": False, "message": "Usuario no encontrado"}), 404
 
         nombre = _text(data.get("nombre", actual["nombre"]))
         email = _text(data.get("email", actual["email"]))
-        password = _text(data.get("password", actual["password"]))
         rol = _text(data.get("rol", actual["rol"]))
-        if not nombre or not email or not password:
+        if not nombre or not email:
             return jsonify({"ok": False, "message": "Faltan campos obligatorios: nombre, email, password"}), 400
         if rol not in ROLES_VALIDOS:
             return jsonify({"ok": False, "message": "Rol inválido"}), 400
+        password_db = actual["password_hash"]
+        if "password" in data:
+            password_nueva = _text(data.get("password"))
+            if not password_nueva:
+                return jsonify({"ok": False, "message": "Faltan campos obligatorios: nombre, email, password"}), 400
+            password_db = generate_password_hash(password_nueva)
 
-        cur.execute("UPDATE users SET nombre = %s, email = %s, password = %s, rol = %s WHERE id = %s", (nombre, email, password, rol, user_id))
+        cur.execute("UPDATE users SET nombre = %s, email = %s, password_hash = %s, rol = %s WHERE id = %s", (nombre, email, password_db, rol, user_id))
         conn.commit()
         return jsonify({"ok": True, "data": _user_by_id(cur, user_id)}), 200
     except Error as error:
         if getattr(error, "errno", None) == 1062:
             return jsonify({"ok": False, "message": "El email ya existe"}), 409
-        return jsonify({"ok": False, "message": f"Error al actualizar usuario: {error}"}), 500
+        app.logger.exception("Error SQL al actualizar usuario %s: %s", user_id, error)
+        return jsonify({"ok": False, "message": "Error interno al actualizar usuario"}), 500
     finally:
         cur.close()
         conn.close()
@@ -212,7 +237,6 @@ def eliminar_usuario(user_id: int):
 #Lista equipos del laboratorio con su responsable y frecuencia de mantenimiento 
 @app.route("/api/equipos", methods=["GET"])
 def listar_equipos():
-    """Lista equipos del laboratorio"""
     conn, err = _get_connection_or_error()
     if err:
         return err

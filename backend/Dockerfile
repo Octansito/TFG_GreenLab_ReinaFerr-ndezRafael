@@ -1,3 +1,5 @@
+#Contiene la imagen de python, instala las dependencias y ejecuta la aplicacion Flask en el puerto 5000 
+
 FROM python:3.11-slim
 
 WORKDIR /app

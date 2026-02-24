@@ -1,4 +1,4 @@
-#Archivo que sirve para levantar backend y base de datos en contenedores Docker
+﻿#Archivo que sirve para levantar backend y base de datos en contenedores Docker
 #Requiere inicialización de Docker Desktop
 services:
   mysql:
@@ -16,7 +16,11 @@ services:
     volumes:
       - greenlab_db:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -41,6 +45,10 @@ services:
       DB_NAME: greenlab
       DB_USER: root
       DB_PASSWORD: root1234
+      #Sirve para ejecutrar Flask en modo desarrollo con recarga automática
+    command: flask --app app.py run --host=0.0.0.0 --port=5000 --debug
+    volumes:
+      - ../backend:/app
     ports:
       - "5000:5000"
 
