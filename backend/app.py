@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from flask import Flask, jsonify, render_template, request
 from mysql.connector import Error
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 #Este bloque permite ejecutar el proyecto tanto como paquete como script suelto
 try:
@@ -67,6 +67,11 @@ def _user_by_id(cursor, user_id: int):
     cursor.execute(f"{USUARIO_SELECT} WHERE id = %s", (user_id,))
     return cursor.fetchone()
 
+#Devuelve un usuario por email para iniciar sesión
+def _user_auth_by_email(cursor, email: str):
+    cursor.execute("SELECT id, nombre, email, password_hash, rol FROM users WHERE email = %s", (email,))
+    return cursor.fetchone()
+
 #Las siguientes funciones manejan errores y devuelven respuestas JSON para la base de datos 
 @app.errorhandler(400)
 def bad_request(error):
@@ -101,6 +106,41 @@ def health():
     db_ok, db_message = check_db_connection()
     status = 200 if db_ok else 500
     return jsonify({"ok": db_ok, "service": "flask", "database": "connected" if db_ok else "disconnected", "message": db_message}), status
+
+#Inicia sesión con email y password
+@app.route("/api/login", methods=["POST"])
+def login():
+    data, err_json = _json_body_or_400()
+    if err_json:
+        return err_json
+    email = _text(data.get("email"))
+    password = _text(data.get("password"))
+    if not email or not password:
+        return jsonify({"ok": False, "message": "Faltan campos obligatorios: email, password"}), 400
+
+    conn, err = _get_connection_or_error()
+    if err:
+        return err
+    cur = conn.cursor(dictionary=True)
+    try:
+        user = _user_auth_by_email(cur, email)
+        if user is None or not check_password_hash(user["password_hash"], password):
+            return jsonify({"ok": False, "message": "Credenciales inválidas"}), 401
+        return jsonify({
+            "ok": True,
+            "data": {
+                "id": user["id"],
+                "nombre": user["nombre"],
+                "email": user["email"],
+                "rol": user["rol"],
+            },
+        }), 200
+    except Error as error:
+        app.logger.exception("Error SQL al iniciar sesión: %s", error)
+        return jsonify({"ok": False, "message": "Error interno al iniciar sesión"}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 #Lista usuarios de la tabla users
 @app.route("/api/usuarios", methods=["GET"])
