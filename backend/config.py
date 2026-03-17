@@ -1,4 +1,4 @@
-﻿"""Clase que contiene la configuracion de la aplicacion Flask, cargada desde variables de entorno"""
+"""Clase que contiene la configuracion de la aplicacion Flask, cargada desde variables de entorno"""
 from __future__ import annotations
 
 import os
@@ -18,6 +18,6 @@ class Config:
 
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = int(os.getenv("DB_PORT", "3306"))
-    DB_NAME = os.getenv("DB_NAME", "greenlab_checklist")
-    DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "root1234")
+    DB_NAME = os.getenv("DB_NAME", "greenlab")
+    DB_USER = os.getenv("DB_USER", "greenlab_user")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "greenlab_pass")
