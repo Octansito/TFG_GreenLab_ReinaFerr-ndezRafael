@@ -135,3 +135,4 @@ INSERT INTO issues (equipment_id, user_id, titulo, descripcion, prioridad, estad
 (2, 3, 'Cierre de puerta duro', 'La puerta necesita fuerza extra para cerrar', 'media', 'abierta', '2026-02-20 09:20:00', NULL),
 (1, 2, 'Alarma puntual de temperatura', 'Alarma breve durante 2 minutos', 'alta', 'en_proceso', '2026-02-19 07:55:00', NULL),
 (3, 2, 'Vibracion anomala', 'Vibracion superior a la habitual', 'media', 'cerrada', '2026-02-18 12:00:00', '2026-02-19 16:30:00');
+ 

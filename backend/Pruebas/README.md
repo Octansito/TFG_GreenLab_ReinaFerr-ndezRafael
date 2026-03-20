@@ -29,3 +29,13 @@ Prueba de conexión
 
     ![alt text](image-11.png)
     ![alt text](image-12.png)
+
+
+    -Prueba arranque aplicación con Flask:
+    ![alt text](image-13.png)
+
+    Comando utilizado:
+    python -m flask --app app.py run --debug
+    Da error porque apunta a la anterior versión de la app que se llamaba TriaGe.
+
+    Este comando sirve para iniciar el servidor de desarrollo de Flask cargando la aplicación definida en `app.py` lo que permite recarga automática al guardar cambios y muestra detallada de errores durante el desarrollo.
