@@ -1,0 +1,153 @@
+<!-- Pagina registro que contiene la estructura -->
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GreenLab | Crear usuario</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles/auth.css" />
+  </head>
+  <body data-pagina="register">
+    <main class="contenedor-auth">
+      <section class="panel-visual">
+        <div class="panel-visual__interior">
+          <h1>Bienvenido a GreenLab</h1>
+          <h2>
+            Administra tu laboratorio de forma segura y eficiente desde una sola
+            plataforma.
+          </h2>
+        </div>
+      </section>
+
+      <section class="panel-formulario">
+        <div class="tarjeta-formulario tarjeta-formulario--registro">
+          <a class="volver-registro" href="/login" aria-label="Volver al login">
+            <img src="/assets/arrow-left.svg" alt="" aria-hidden="true" />
+          </a>
+
+          <div class="cabecera-formulario cabecera-formulario--registro">
+            <img
+              class="logo-marca"
+              src="/assets/LogoGreenLab.png"
+              alt="Logo de GreenLab"
+            />
+            <div>
+              <p class="etiqueta etiqueta--dark">Registro</p>
+              <h2>Crear usuario</h2>
+            </div>
+          </div>
+
+          <form
+            class="formulario-auth formulario-auth--registro"
+            id="formulario-registro"
+            novalidate
+          >
+            <label class="campo">
+              <span class="etiqueta-campo">
+                Nombre completo:
+                <span class="marca-obligatoria" aria-hidden="true">*</span>
+              </span>
+              <input
+                type="text"
+                name="nombre"
+                placeholder="Introduce tu nombre"
+                autocomplete="name"
+                required
+              />
+            </label>
+
+            <label class="campo">
+              <span class="etiqueta-campo">
+                Correo electrónico:
+                <span class="marca-obligatoria" aria-hidden="true">*</span>
+              </span>
+              <input
+                type="email"
+                name="email"
+                placeholder="nombre@greenlab.com"
+                autocomplete="email"
+                required
+              />
+            </label>
+
+            <label class="campo">
+              <span class="etiqueta-campo">
+                Contraseña:
+                <span class="marca-obligatoria" aria-hidden="true">*</span>
+              </span>
+              <div class="campo-contrasena">
+                <input
+                  id="contrasena-registro"
+                  type="password"
+                  name="password"
+                  placeholder="Crea tu contraseña"
+                  autocomplete="new-password"
+                  required
+                />
+                <button
+                  class="alternar-contrasena"
+                  type="button"
+                  data-contrasena-objetivo="contrasena-registro"
+                  aria-label="Mostrar contraseña"
+                  aria-pressed="false"
+                >
+                  <img
+                    class="icono-contrasena icono-contrasena--cerrado"
+                    src="/assets/eye-off-svgrepo-com.svg"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <img
+                    class="icono-contrasena icono-contrasena--abierto"
+                    src="/assets/eye-on-svgrepo-com.svg"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+              <div
+                class="requisitos-contrasena requisitos-contrasena--registro"
+                aria-live="polite"
+              >
+                <p class="titulo-requisitos">La contraseña debe incluir:</p>
+                <ul class="lista-requisitos" id="requisitos-contrasena">
+                  <li class="item-requisito" data-regla="longitud">
+                    Mínimo 8 caracteres
+                  </li>
+                  <li class="item-requisito" data-regla="mayuscula">
+                    Una letra mayúscula
+                  </li>
+                  <li class="item-requisito" data-regla="minuscula">
+                    Una letra minúscula
+                  </li>
+                  <li class="item-requisito" data-regla="numero">Un número</li>
+                  <li class="item-requisito" data-regla="especial">
+                    Un caracter especial
+                  </li>
+                </ul>
+              </div>
+            </label>
+
+            <button class="boton boton--primario boton--registro" type="submit">
+              Crear cuenta
+            </button>
+          </form>
+
+          <div
+            class="mensaje-formulario"
+            id="mensaje-registro"
+            aria-live="polite"
+          ></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/services/auth.js"></script>
+  </body>
+</html>

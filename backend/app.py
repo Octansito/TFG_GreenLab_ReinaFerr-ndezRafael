@@ -1,7 +1,10 @@
 #Archivo principal de Flask con una interfaz HTML y endpoints de API
 from __future__ import annotations
 
-from flask import Flask, jsonify, render_template, request
+import re
+from pathlib import Path
+
+from flask import Flask, jsonify, request, send_from_directory
 from mysql.connector import Error
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -13,12 +16,18 @@ except ImportError:
     from config import Config
     from db import check_db_connection, get_db_connection
 
+BASE_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BASE_DIR.parent / "frontend"
+PAGES_DIR = FRONTEND_DIR / "pages"
+STYLES_DIR = FRONTEND_DIR / "styles"
+SERVICES_DIR = FRONTEND_DIR / "services"
+ASSETS_DIR = FRONTEND_DIR / "assets"
+
 app = Flask(__name__)
 app.config.from_object(Config)
-#Roles válidos para los usuarios
 ROLES_VALIDOS = {"jefe_laboratorio", "personal_laboratorio"}
+SPECIAL_CHAR_RE = re.compile(r"[^A-Za-z0-9ÁÉÍÓÚÜÑáéíóúüñ]")
 
-#Querys CRUD realizadas para la base de datos 
 USUARIO_SELECT = "SELECT id, nombre, email, rol FROM users"
 EQUIPO_SELECT = """
 SELECT e.id, e.nombre, e.tipo, e.ubicacion, e.temp_objetivo, e.responsable_id,
@@ -42,37 +51,65 @@ FROM issues i JOIN equipment e ON e.id = i.equipment_id JOIN users u ON u.id = i
 """
 
 
-#Devuelve una conexión MySQL o una respuesta JSON de error
+def _add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    return response
+
+
+@app.after_request
+def add_cors_headers(response):
+    return _add_cors_headers(response)
+
+
 def _get_connection_or_error():
-    
     try:
         return get_db_connection(), None
     except Error as error:
         app.logger.exception("Error de conexión a MySQL: %s", error)
         return None, (jsonify({"ok": False, "message": "Error de conexión a la base de datos"}), 500)
 
-#Limpia texto y devuelve string vacío cuando no hay valor
-def _text(value):
-    return (str(value).strip() if value is not None else "")
 
-#Valida que el cuerpo sea JSON y de tipo objeto
+def _text(value):
+    return str(value).strip() if value is not None else ""
+
+
 def _json_body_or_400():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return None, (jsonify({"ok": False, "message": "El body debe ser JSON válido"}), 400)
     return data, None
 
-#Devuelve un usuario por id
+
+def _password_error(password: str) -> str | None:
+    if len(password) < 8:
+        return "La contraseña debe tener al menos 8 caracteres"
+    if not re.search(r"[A-ZÁÉÍÓÚÜÑ]", password):
+        return "La contraseña debe incluir al menos una mayúscula"
+    if not re.search(r"[a-záéíóúüñ]", password):
+        return "La contraseña debe incluir al menos una minúscula"
+    if not re.search(r"\d", password):
+        return "La contraseña debe incluir al menos un número"
+    if not SPECIAL_CHAR_RE.search(password):
+        return "La contraseña debe incluir al menos un carácter especial"
+    return None
+
+
 def _user_by_id(cursor, user_id: int):
     cursor.execute(f"{USUARIO_SELECT} WHERE id = %s", (user_id,))
     return cursor.fetchone()
 
-#Devuelve un usuario por email para iniciar sesión
+
 def _user_auth_by_email(cursor, email: str):
     cursor.execute("SELECT id, nombre, email, password_hash, rol FROM users WHERE email = %s", (email,))
     return cursor.fetchone()
 
-#Las siguientes funciones manejan errores y devuelven respuestas JSON para la base de datos 
+
+def _serve_frontend(directory: Path, filename: str):
+    return send_from_directory(directory, filename)
+
+
 @app.errorhandler(400)
 def bad_request(error):
     return jsonify({"ok": False, "message": "Solicitud incorrecta"}), 400
@@ -93,21 +130,44 @@ def method_not_allowed(error):
     return jsonify({"ok": False, "message": "Método no permitido"}), 405
 
 
-#Muestra la página principal con el estado actual de la base de datos
 @app.route("/", methods=["GET"])
+@app.route("/login", methods=["GET"])
+@app.route("/login.html", methods=["GET"])
 def home():
-    db_ok, db_message = check_db_connection()
-    return render_template("index.html", db_ok=db_ok, db_message=db_message)
+    return _serve_frontend(PAGES_DIR, "login.html")
 
 
-#Devuelve un JSON simple con el estado del backend y de MySQL
+@app.route("/register", methods=["GET"])
+@app.route("/register.html", methods=["GET"])
+def register_page():
+    return _serve_frontend(PAGES_DIR, "register.html")
+
+
+
+
+
+@app.route("/styles/<path:filename>", methods=["GET"])
+def frontend_styles(filename: str):
+    return _serve_frontend(STYLES_DIR, filename)
+
+
+@app.route("/services/<path:filename>", methods=["GET"])
+def frontend_services(filename: str):
+    return _serve_frontend(SERVICES_DIR, filename)
+
+
+@app.route("/assets/<path:filename>", methods=["GET"])
+def frontend_assets(filename: str):
+    return _serve_frontend(ASSETS_DIR, filename)
+
+
 @app.route("/health", methods=["GET"])
 def health():
     db_ok, db_message = check_db_connection()
     status = 200 if db_ok else 500
     return jsonify({"ok": db_ok, "service": "flask", "database": "connected" if db_ok else "disconnected", "message": db_message}), status
 
-#Inicia sesión con email y password
+
 @app.route("/api/login", methods=["POST"])
 def login():
     data, err_json = _json_body_or_400()
@@ -126,15 +186,17 @@ def login():
         user = _user_auth_by_email(cur, email)
         if user is None or not check_password_hash(user["password_hash"], password):
             return jsonify({"ok": False, "message": "Credenciales inválidas"}), 401
-        return jsonify({
-            "ok": True,
-            "data": {
-                "id": user["id"],
-                "nombre": user["nombre"],
-                "email": user["email"],
-                "rol": user["rol"],
-            },
-        }), 200
+        return jsonify(
+            {
+                "ok": True,
+                "data": {
+                    "id": user["id"],
+                    "nombre": user["nombre"],
+                    "email": user["email"],
+                    "rol": user["rol"],
+                },
+            }
+        ), 200
     except Error as error:
         app.logger.exception("Error SQL al iniciar sesión: %s", error)
         return jsonify({"ok": False, "message": "Error interno al iniciar sesión"}), 500
@@ -142,7 +204,7 @@ def login():
         cur.close()
         conn.close()
 
-#Lista usuarios de la tabla users
+
 @app.route("/api/usuarios", methods=["GET"])
 def listar_usuarios():
     conn, err = _get_connection_or_error()
@@ -158,7 +220,7 @@ def listar_usuarios():
         cur.close()
         conn.close()
 
-#Crea usuario en la tabla users
+
 @app.route("/api/usuarios", methods=["POST"])
 def crear_usuario():
     data, err = _json_body_or_400()
@@ -172,6 +234,9 @@ def crear_usuario():
         return jsonify({"ok": False, "message": "Faltan campos obligatorios: nombre, email, password"}), 400
     if rol not in ROLES_VALIDOS:
         return jsonify({"ok": False, "message": "Rol inválido"}), 400
+    password_message = _password_error(password)
+    if password_message:
+        return jsonify({"ok": False, "message": password_message}), 400
     password_hash = generate_password_hash(password)
 
     conn, err = _get_connection_or_error()
@@ -179,7 +244,10 @@ def crear_usuario():
         return err
     cur = conn.cursor(dictionary=True)
     try:
-        cur.execute("INSERT INTO users (nombre, email, password_hash, rol) VALUES (%s, %s, %s, %s)", (nombre, email, password_hash, rol))
+        cur.execute(
+            "INSERT INTO users (nombre, email, password_hash, rol) VALUES (%s, %s, %s, %s)",
+            (nombre, email, password_hash, rol),
+        )
         conn.commit()
         user = _user_by_id(cur, cur.lastrowid)
         return jsonify({"ok": True, "data": user}), 201
@@ -191,8 +259,6 @@ def crear_usuario():
     finally:
         cur.close()
         conn.close()
-
-#Obtiene usuario por id
 @app.route("/api/usuarios/<int:user_id>", methods=["GET"])
 def obtener_usuario(user_id: int):
     conn, err = _get_connection_or_error()
@@ -209,9 +275,8 @@ def obtener_usuario(user_id: int):
     finally:
         cur.close()
         conn.close()
-        
 
-#Actualiza usuario por id de forma parcial o completa
+
 @app.route("/api/usuarios/<int:user_id>", methods=["PUT", "PATCH"])
 def actualizar_usuario(user_id: int):
     data, err_json = _json_body_or_400()
@@ -239,9 +304,15 @@ def actualizar_usuario(user_id: int):
             password_nueva = _text(data.get("password"))
             if not password_nueva:
                 return jsonify({"ok": False, "message": "Faltan campos obligatorios: nombre, email, password"}), 400
+            password_message = _password_error(password_nueva)
+            if password_message:
+                return jsonify({"ok": False, "message": password_message}), 400
             password_db = generate_password_hash(password_nueva)
 
-        cur.execute("UPDATE users SET nombre = %s, email = %s, password_hash = %s, rol = %s WHERE id = %s", (nombre, email, password_db, rol, user_id))
+        cur.execute(
+            "UPDATE users SET nombre = %s, email = %s, password_hash = %s, rol = %s WHERE id = %s",
+            (nombre, email, password_db, rol, user_id),
+        )
         conn.commit()
         return jsonify({"ok": True, "data": _user_by_id(cur, user_id)}), 200
     except Error as error:
@@ -253,7 +324,7 @@ def actualizar_usuario(user_id: int):
         cur.close()
         conn.close()
 
-#Elimina usuario por id
+
 @app.route("/api/usuarios/<int:user_id>", methods=["DELETE"])
 def eliminar_usuario(user_id: int):
     conn, err = _get_connection_or_error()
@@ -274,7 +345,7 @@ def eliminar_usuario(user_id: int):
         cur.close()
         conn.close()
 
-#Lista equipos del laboratorio con su responsable y frecuencia de mantenimiento 
+
 @app.route("/api/equipos", methods=["GET"])
 def listar_equipos():
     conn, err = _get_connection_or_error()
@@ -290,7 +361,7 @@ def listar_equipos():
         cur.close()
         conn.close()
 
-#Lista plantillas de checklist para cada tipo de equipo
+
 @app.route("/api/checklist/plantillas", methods=["GET"])
 def listar_plantillas():
     conn, err = _get_connection_or_error()
@@ -306,7 +377,7 @@ def listar_plantillas():
         cur.close()
         conn.close()
 
-#Lista registros de checklist realizados por el personal del laboratorio
+
 @app.route("/api/checklist/registros", methods=["GET"])
 def listar_registros():
     conn, err = _get_connection_or_error()
@@ -322,7 +393,7 @@ def listar_registros():
         cur.close()
         conn.close()
 
-#Lista incidencias reportadas en el laboratorio
+
 @app.route("/api/incidencias", methods=["GET"])
 def listar_incidencias():
     conn, err = _get_connection_or_error()
@@ -338,5 +409,11 @@ def listar_incidencias():
         cur.close()
         conn.close()
 
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
+
+
+
+

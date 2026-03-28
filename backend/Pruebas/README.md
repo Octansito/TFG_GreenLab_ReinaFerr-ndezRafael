@@ -39,3 +39,6 @@ Prueba de conexión
     Da error porque apunta a la anterior versión de la app que se llamaba TriaGe.
 
     Este comando sirve para iniciar el servidor de desarrollo de Flask cargando la aplicación definida en `app.py` lo que permite recarga automática al guardar cambios y muestra detallada de errores durante el desarrollo.
+
+    Segunda Prueba tras el arreglo (ya en funcionamiento)
+    ![alt text](image-14.png)
